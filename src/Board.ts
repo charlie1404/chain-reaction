@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import gsap from 'gsap';
 
 import { COLORS } from './constants';
-import { Molecule } from './Molecule';
 import { Cell } from './Cell';
 
 let BOX_SIDE = 2;
@@ -84,87 +83,84 @@ class Board {
     }
   }
 
-  _changePlayer() {
-    this.currentPlayer = (this.currentPlayer + 1) % this.playersCount;
-    this.changeBoardColor(COLORS[this.currentPlayer]);
-  }
-
-  _handleSplitOnComplete(atom: THREE.Mesh, row: number, col: number) {
-    atom.removeFromParent();
-
-    let cell = this.grid[row][col];
-    cell.addExternalAtom(this.currentPlayer, atom);
-
-    // if (cell.shouldMoleculeInCellBeExploded()) {
-    //   this.startReaction(row, col);
-    // } else {
-    //   this._changePlayer();
-    // }
-  }
-
   // pass to _splitCells after validation that cell needs spliting
-  _splitCells(cells: Cell[]) {
-    let timelineDefaults = { duration: 0.5 };
+  _splitCells(cells: Cell[], cb?: (arg0: [number, number][]) => void) {
+    let updatedCells: [number, number][] = [];
+    let atomMovements = new Map();
+
+    let timeline = gsap.timeline({
+      defaults: { duration: 0.25 },
+      onComplete: () => {
+        for (let [atom, [row, col]] of atomMovements) {
+          atom.removeFromParent();
+          this.grid[row][col].addExternalAtom(this.currentPlayer, atom);
+        }
+
+        let dedupe = new Set();
+        updatedCells = updatedCells.filter((cell) => {
+          let key = cell.join(',');
+          if (dedupe.has(key)) return false;
+          dedupe.add(key);
+          return true;
+        });
+
+        if (cb) cb(updatedCells);
+      },
+    });
 
     for (const cell of cells) {
       let [row, col] = cell.getPosition();
+      let atom: THREE.Mesh;
 
       // left movement
       if (row - 1 >= 0) {
-        let leftAtom = cell.popTopAtom();
+        updatedCells.push([row - 1, col]);
 
-        gsap
-          .timeline({
-            defaults: timelineDefaults,
-            onCompleteParams: [leftAtom, row - 1, col],
-            onComplete: this._handleSplitOnComplete.bind(this),
-          })
-          .to(leftAtom.position, { x: leftAtom.position.x - 2 });
+        atom = cell.popTopAtom();
+        atomMovements.set(atom, [row - 1, col]);
+        this.grid[row - 1][col].addAtomToCube(atom);
+
+        timeline.fromTo(atom.position, { x: atom.position.x + 2 }, { x: 0 }, 0);
       }
 
       // right movement
       if (row + 1 < this.xCells) {
-        let rightAtom = cell.popTopAtom();
+        updatedCells.push([row + 1, col]);
 
-        gsap
-          .timeline({
-            defaults: timelineDefaults,
-            onCompleteParams: [rightAtom, row + 1, col],
-            onComplete: this._handleSplitOnComplete.bind(this),
-          })
-          .to(rightAtom.position, { x: rightAtom.position.x + 2 });
+        atom = cell.popTopAtom();
+        atomMovements.set(atom, [row + 1, col]);
+        this.grid[row + 1][col].addAtomToCube(atom);
+
+        timeline.fromTo(atom.position, { x: atom.position.x - 2 }, { x: 0 }, 0);
       }
 
       // top movement
       if (col - 1 >= 0) {
-        let topAtom = cell.popTopAtom();
+        updatedCells.push([row, col - 1]);
 
-        gsap
-          .timeline({
-            defaults: timelineDefaults,
-            onCompleteParams: [topAtom, row, col - 1],
-            onComplete: this._handleSplitOnComplete.bind(this),
-          })
-          .to(topAtom.position, { y: topAtom.position.y - 2 });
+        let atom = cell.popTopAtom();
+        atomMovements.set(atom, [row, col - 1]);
+        this.grid[row][col - 1].addAtomToCube(atom);
+
+        timeline.fromTo(atom.position, { y: atom.position.y - 2 }, { y: 0 }, 0);
       }
 
       // bottom movement
       if (col + 1 < this.yCells) {
-        let bottomAtom = cell.popTopAtom();
+        updatedCells.push([row, col + 1]);
 
-        gsap
-          .timeline({
-            defaults: timelineDefaults,
-            onCompleteParams: [bottomAtom, row, col + 1],
-            onComplete: this._handleSplitOnComplete.bind(this),
-          })
-          .to(bottomAtom.position, { y: bottomAtom.position.y + 2 });
+        atom = cell.popTopAtom();
+        atomMovements.set(atom, [row, col + 1]);
+        this.grid[row][col + 1].addAtomToCube(atom);
+
+        timeline.fromTo(atom.position, { y: atom.position.y + 2 }, { y: 0 }, 0);
       }
     }
   }
 
-  changeBoardColor(color = COLORS[0]) {
-    this.edgesMaterial.color.set(color);
+  changePlayer() {
+    this.currentPlayer = (this.currentPlayer + 1) % this.playersCount;
+    this.edgesMaterial.color.set(COLORS[this.currentPlayer]);
   }
 
   validateMove(row: number, col: number) {
@@ -181,12 +177,31 @@ class Board {
     return cell.shouldMoleculeInCellBeExploded();
   }
 
+  _handleSplitCellsCallback(updatedCells: [number, number][], hooks = defaultHooks) {
+    if (hooks.onStep) hooks.onStep();
+
+    let nextSplitableCells: Cell[] = [];
+    for (const [row, col] of updatedCells) {
+      if (this.grid[row][col].shouldMoleculeInCellBeExploded()) {
+        nextSplitableCells.push(this.grid[row][col]);
+      }
+    }
+
+    if (nextSplitableCells.length > 0) {
+      this._splitCells(nextSplitableCells, (updatedCells) => {
+        this._handleSplitCellsCallback(updatedCells, hooks);
+      });
+    } else {
+      if (hooks.onComplete) hooks.onComplete();
+    }
+  }
+
   startReaction(row: number, col: number, hooks: Hooks = defaultHooks) {
     if (hooks.onStart) hooks.onStart();
 
-    this._splitCells([this.grid[row][col]]);
-
-    if (hooks.onComplete) hooks.onComplete();
+    this._splitCells([this.grid[row][col]], (updatedCells) => {
+      this._handleSplitCellsCallback(updatedCells, hooks);
+    });
   }
 }
 

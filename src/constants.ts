@@ -1,5 +1,4 @@
 export let COLORS = [
-  0xffff00, // yellow // TODO: remove me
   0xff0000, // red
   0x00ff00, // green
   0x0000ff, // blue

@@ -23,9 +23,9 @@ class Game {
   private board: Board;
 
   constructor(playersCount = 2, gridSize: GridSizes = 's') {
-    // if (playersCount < 2 || playersCount > COLORS.length) {
-    //   throw new Error('Players count should be between 2 and 8');
-    // }
+    if (playersCount < 2 || playersCount > COLORS.length) {
+      throw new Error('Players count should be between 2 and 8');
+    }
 
     if (gridSize !== 's' && gridSize !== 'l') {
       throw new Error('Invalid grid size');
@@ -121,18 +121,20 @@ class Game {
 
     this.locked = true;
 
-    let shouldSplit = this.board.addAtom(row, col); // this ideally should return atom or atom count. // TODO: Fix later
+    // TODO: Fix later, this ideally should return atom or atom count.
+    let shouldSplit = this.board.addAtom(row, col);
 
     if (shouldSplit) {
       this.board.startReaction(row, col, {
-        onComplete: this.unlockBoard.bind(this),
+        onComplete: this.nextTurn.bind(this),
       });
     } else {
-      this.unlockBoard();
+      this.nextTurn();
     }
   }
 
-  unlockBoard() {
+  nextTurn() {
+    this.board.changePlayer();
     this.locked = false;
   }
 

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { Game } from './Game';
 
 function main() {
-  let game = new Game(1);
+  let game = new Game(2);
 
   game.start();
 }

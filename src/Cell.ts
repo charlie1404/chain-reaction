@@ -46,6 +46,10 @@ class Cell {
     atom.position.y = 0;
   }
 
+  addAtomToCube(atom: THREE.Mesh) {
+    this.cube.add(atom);
+  }
+
   getPlayer() {
     return this.player;
   }
@@ -89,9 +93,7 @@ class Cell {
 
   addExternalAtom(player: number, atom: THREE.Mesh) {
     atom.material = this.sphereMaterial;
-
     this.setPlayer(player);
-    this._resetAtomPosition(atom);
     this._addCreatedAtom(atom);
   }
 
