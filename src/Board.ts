@@ -1,27 +1,27 @@
 import * as THREE from 'three';
 import gsap from 'gsap';
 
-import { COLORS } from './constants';
+import { Player } from './Player';
 import { Cell } from './Cell';
 
 let BOX_SIDE = 2;
 let BOX_DEPTH = 0.75;
 
 type Hooks = {
-  onStart?: () => void;
-  onStep?: () => void;
+  onStepStart?: () => void;
+  onStepComplete?: () => void;
   onComplete?: () => void;
 };
 
 let defaultHooks: Hooks = {
-  onStart: () => {},
-  onStep: () => {},
+  onStepStart: () => {},
+  onStepComplete: () => {},
   onComplete: () => {},
 };
 
 class Board {
-  private playersCount: number;
-  private currentPlayer: number;
+  private players: Player[];
+  private currentPlayer: Player;
 
   private scene: THREE.Scene;
 
@@ -33,16 +33,16 @@ class Board {
 
   private grid: Cell[][];
 
-  constructor(scene: THREE.Scene, playersCount: number, xCells: number, yCells: number) {
-    this.playersCount = playersCount;
-    this.currentPlayer = 0;
+  constructor(scene: THREE.Scene, players: Player[], xCells: number, yCells: number) {
+    this.players = players;
+    this.currentPlayer = players[0];
 
     this.scene = scene;
     this.xCells = xCells;
     this.yCells = yCells;
 
     this.boxMaterial = new THREE.MeshStandardMaterial({ transparent: true, opacity: 0 });
-    this.edgesMaterial = new THREE.LineBasicMaterial({ color: COLORS[0] });
+    this.edgesMaterial = new THREE.LineBasicMaterial({ color: this.currentPlayer.getColor() });
 
     this.grid = new Array(xCells).fill(null).map(() => new Array(yCells).fill(null));
 
@@ -83,13 +83,34 @@ class Board {
     }
   }
 
+  _handleSplitCellsCallback(updatedCells: [number, number][], hooks = defaultHooks) {
+    if (hooks.onStepComplete) hooks.onStepComplete();
+
+    let nextSplitableCells: Cell[] = [];
+    for (const [row, col] of updatedCells) {
+      if (this.grid[row][col].shouldMoleculeInCellBeExploded()) {
+        nextSplitableCells.push(this.grid[row][col]);
+      }
+    }
+
+    if (nextSplitableCells.length > 0) {
+      this._splitCells(nextSplitableCells, hooks, (updatedCells) => {
+        this._handleSplitCellsCallback(updatedCells, hooks);
+      });
+    } else {
+      if (hooks.onComplete) hooks.onComplete();
+    }
+  }
+
   // pass to _splitCells after validation that cell needs spliting
-  _splitCells(cells: Cell[], cb?: (arg0: [number, number][]) => void) {
+  _splitCells(cells: Cell[], hooks = defaultHooks, cb?: (arg0: [number, number][]) => void) {
+    if (hooks.onStepStart) hooks.onStepStart();
+
     let updatedCells: [number, number][] = [];
     let atomMovements = new Map();
 
     let timeline = gsap.timeline({
-      defaults: { duration: 0.25 },
+      defaults: { duration: 0.3 },
       onComplete: () => {
         for (let [atom, [row, col]] of atomMovements) {
           atom.removeFromParent();
@@ -158,15 +179,38 @@ class Board {
     }
   }
 
+  getPlayers() {
+    return this.players;
+  }
+
+  setPlayers(players: Player[]) {
+    this.players = players;
+  }
+
   changePlayer() {
-    this.currentPlayer = (this.currentPlayer + 1) % this.playersCount;
-    this.edgesMaterial.color.set(COLORS[this.currentPlayer]);
+    let idx = this.players.findIndex((player) => player === this.currentPlayer);
+    this.currentPlayer = this.players[(idx + 1) % this.players.length];
+    this.edgesMaterial.color.set(this.currentPlayer.getColor());
+  }
+
+  getAlivePlayers() {
+    let players: Set<Player> = new Set();
+    for (let i = 0; i < this.xCells; i++) {
+      for (let j = 0; j < this.yCells; j++) {
+        let player = this.grid[i][j].getPlayer();
+        if (player) {
+          players.add(player);
+        }
+      }
+    }
+
+    return players;
   }
 
   validateMove(row: number, col: number) {
     let cellPlayer = this.grid[row][col].getPlayer();
 
-    return cellPlayer === -1 || cellPlayer === this.currentPlayer;
+    return cellPlayer === null || cellPlayer === this.currentPlayer;
   }
 
   addAtom(row: number, col: number) {
@@ -177,32 +221,11 @@ class Board {
     return cell.shouldMoleculeInCellBeExploded();
   }
 
-  _handleSplitCellsCallback(updatedCells: [number, number][], hooks = defaultHooks) {
-    if (hooks.onStep) hooks.onStep();
-
-    let nextSplitableCells: Cell[] = [];
-    for (const [row, col] of updatedCells) {
-      if (this.grid[row][col].shouldMoleculeInCellBeExploded()) {
-        nextSplitableCells.push(this.grid[row][col]);
-      }
-    }
-
-    if (nextSplitableCells.length > 0) {
-      this._splitCells(nextSplitableCells, (updatedCells) => {
-        this._handleSplitCellsCallback(updatedCells, hooks);
-      });
-    } else {
-      if (hooks.onComplete) hooks.onComplete();
-    }
-  }
-
   startReaction(row: number, col: number, hooks: Hooks = defaultHooks) {
-    if (hooks.onStart) hooks.onStart();
-
-    this._splitCells([this.grid[row][col]], (updatedCells) => {
+    this._splitCells([this.grid[row][col]], hooks, (updatedCells) => {
       this._handleSplitCellsCallback(updatedCells, hooks);
     });
   }
 }
 
-export { Board, Cell };
+export { Board };

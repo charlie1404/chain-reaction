@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-
+import gsap from 'gsap';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Board, Cell } from './Board';
-import { COLORS } from './constants';
+
+import { Board } from './Board';
+import { Player } from './Player';
+import { COLORS, audd } from './constants';
 
 type GridSizes = 's' | 'l';
 
@@ -31,9 +33,6 @@ class Game {
       throw new Error('Invalid grid size');
     }
 
-    let w = Math.floor(window.innerWidth / 90) * 90;
-    let h = Math.floor(window.innerHeight / 90) * 90;
-
     let xCells = 6;
     let yCells = 10;
 
@@ -42,21 +41,33 @@ class Game {
       yCells = 18;
     }
 
-    let sideLength = Math.min(w / xCells, h / yCells);
-    this.width = sideLength * xCells;
-    this.height = sideLength * yCells;
+    this.width = window.innerWidth / xCells;
+    this.height = window.innerHeight / yCells;
 
-    this._initThreeScene();
+    if (this.width < this.height) {
+      this.width = window.innerWidth;
+      this.height = (window.innerWidth / xCells) * yCells;
+    } else {
+      this.width = (window.innerHeight / yCells) * xCells;
+      this.height = window.innerHeight;
+    }
+
+    this._initThreeScene(gridSize);
     // this._addOrbitControls();
     this._addBoard(playersCount, xCells, yCells);
     this._addBoardMouseDownListener();
   }
 
-  _initThreeScene() {
+  _initThreeScene(gridSize: GridSizes) {
     this.scene = new THREE.Scene();
 
     this.camera = new THREE.PerspectiveCamera(45, this.width / this.height);
-    this.camera.position.set(0, 0, 30);
+
+    if (gridSize === 's') {
+      this.camera.position.set(0, 0, 30);
+    } else {
+      this.camera.position.set(0, 0, 50);
+    }
 
     this.light = new THREE.PointLight(0xffffff, 1, 100, 0);
     this.light.position.set(0, 0, 50);
@@ -68,6 +79,13 @@ class Game {
     document.body.appendChild(this.renderer.domElement);
   }
 
+  _gameLoop() {
+    requestAnimationFrame(this._gameLoop.bind(this));
+    this.renderer.render(this.scene, this.camera);
+
+    if (this.controls) this.controls.update();
+  }
+
   _addOrbitControls() {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
   }
@@ -77,7 +95,16 @@ class Game {
   }
 
   _addBoard(playersCount: number, xCells: number, yCells: number) {
-    this.board = new Board(this.scene, playersCount, xCells, yCells);
+    let players = Array(playersCount)
+      .fill(null)
+      .map((_, i) => new Player('', i));
+
+    this.board = new Board(this.scene, players, xCells, yCells);
+  }
+
+  _nextTurn() {
+    this.board.changePlayer();
+    this.locked = false;
   }
 
   _addBoardMouseDownListener() {
@@ -87,12 +114,37 @@ class Game {
     this.renderer.domElement.addEventListener('mousedown', this._onBoardMouseDownEventHandler.bind(this), false);
   }
 
-  _onBoardMouseDownEventHandler(e: MouseEvent & { target: HTMLCanvasElement }) {
-    if (e.target !== this.renderer.domElement) {
+  _onReactionStepStart() {
+    audd.play();
+  }
+
+  _onReactionStepComplete() {
+    let alivePlayers = this.board.getAlivePlayers();
+    if (alivePlayers.size === 1) {
+      // add logic to check if game should end
+      gsap.globalTimeline.clear();
+      alert('Game Over');
+      throw new Error('Game Over'); // TODO: Fix later
+    }
+  }
+
+  _onReactionComplete() {
+    let alivePlayers = this.board.getAlivePlayers();
+    if (alivePlayers.size === 1) {
+      // end game
       return;
     }
 
-    if (this.locked) {
+    let players = this.board.getPlayers();
+    if (alivePlayers.size !== players.length) {
+      this.board.setPlayers(players.filter((p) => alivePlayers.has(p)));
+    }
+
+    this._nextTurn();
+  }
+
+  _onBoardMouseDownEventHandler(e: MouseEvent & { target: HTMLCanvasElement }) {
+    if (this.locked || e.target !== this.renderer.domElement) {
       return;
     }
 
@@ -113,8 +165,7 @@ class Game {
       return;
     }
 
-    let row = intersect.object.userData.row;
-    let col = intersect.object.userData.col;
+    let { row, col } = intersect.object.userData;
 
     let isValid = this.board.validateMove(row, col);
     if (!isValid) return;
@@ -126,25 +177,14 @@ class Game {
 
     if (shouldSplit) {
       this.board.startReaction(row, col, {
-        onComplete: this.nextTurn.bind(this),
+        onStepStart: this._onReactionStepStart.bind(this),
+        onStepComplete: this._onReactionStepComplete.bind(this),
+        onComplete: this._onReactionComplete.bind(this),
       });
     } else {
-      this.nextTurn();
+      this._nextTurn();
     }
   }
-
-  nextTurn() {
-    this.board.changePlayer();
-    this.locked = false;
-  }
-
-  _gameLoop() {
-    requestAnimationFrame(this._gameLoop.bind(this));
-    this.renderer.render(this.scene, this.camera);
-
-    if (this.controls) this.controls.update();
-  }
-
   start() {
     this._gameLoop();
   }
