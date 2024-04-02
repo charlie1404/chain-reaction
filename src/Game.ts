@@ -103,7 +103,7 @@ class Game {
   }
 
   _nextTurn() {
-    this.board.changePlayer();
+    this.board.setNextPlayer();
     this.locked = false;
   }
 

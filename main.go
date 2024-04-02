@@ -1,81 +1,75 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
+	"os"
 	"reflect"
 	"sync"
-	// "syscall"
-	// "github.com/gobwas/ws"
-	// "github.com/gobwas/ws/wsutil"
-	// "golang.org/x/sys/unix"
+	"syscall"
+
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
+	"golang.org/x/sys/unix"
 )
 
 var epoller *epoll
 
 type epoll struct {
 	fd          int
-	connections map[int]net.Conn
-	lock        *sync.RWMutex
+	connections sync.Map
 }
 
-// func MkEpoll() (*epoll, error) {
-// 	fd, err := unix.EpollCreate1(0)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return &epoll{
-// 		fd:          fd,
-// 		lock:        &sync.RWMutex{},
-// 		connections: make(map[int]net.Conn),
-// 	}, nil
-// }
+func MkEpoll() (*epoll, error) {
+	fd, err := unix.EpollCreate1(0)
+	if err != nil {
+		return nil, err
+	}
+	return &epoll{fd: fd}, nil
+}
 
-// func (e *epoll) Add(conn net.Conn) error {
-// 	// Extract file descriptor associated with the connection
-// 	fd := websocketFD(conn)
-// 	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_ADD, fd, &unix.EpollEvent{Events: unix.POLLIN | unix.POLLHUP, Fd: int32(fd)})
-// 	if err != nil {
-// 		return err
-// 	}
-// 	e.lock.Lock()
-// 	defer e.lock.Unlock()
-// 	e.connections[fd] = conn
-// 	return nil
-// }
+func (e *epoll) Add(conn net.Conn) error {
+	// Extract file descriptor associated with the connection
+	fd := websocketFD(conn)
+	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_ADD, fd, &unix.EpollEvent{Events: unix.POLLIN | unix.POLLHUP, Fd: int32(fd)})
+	if err != nil {
+		return err
+	}
 
-// func (e *epoll) Remove(conn net.Conn) error {
-// 	fd := websocketFD(conn)
-// 	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_DEL, fd, nil)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	e.lock.Lock()
-// 	defer e.lock.Unlock()
-// 	delete(e.connections, fd)
-// 	if len(e.connections)%100 == 0 {
-// 		log.Printf("Total number of connections: %v", len(e.connections))
-// 	}
-// 	return nil
-// }
+	e.connections.Store(fd, conn)
 
-// func (e *epoll) Wait() ([]net.Conn, error) {
-// 	events := make([]unix.EpollEvent, 100)
-// 	n, err := unix.EpollWait(e.fd, events, 100)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	e.lock.RLock()
-// 	defer e.lock.RUnlock()
-// 	var connections []net.Conn
-// 	for i := 0; i < n; i++ {
-// 		conn := e.connections[int(events[i].Fd)]
-// 		connections = append(connections, conn)
-// 	}
-// 	return connections, nil
-// }
+	return nil
+}
+
+func (e *epoll) Remove(conn net.Conn) error {
+	fd := websocketFD(conn)
+	err := unix.EpollCtl(e.fd, syscall.EPOLL_CTL_DEL, fd, nil)
+	if err != nil {
+		return err
+	}
+	e.connections.Delete(fd)
+
+	return nil
+}
+
+func (e *epoll) Wait() ([]net.Conn, error) {
+	events := make([]unix.EpollEvent, 100)
+	n, err := unix.EpollWait(e.fd, events, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	var connections []net.Conn
+
+	for i := 0; i < n; i++ {
+		conn, _ := e.connections.Load(events[i].Fd)
+		connections = append(connections, conn.(net.Conn))
+	}
+
+	return connections, nil
+}
 
 func websocketFD(conn net.Conn) int {
 	tcpConn := reflect.Indirect(reflect.ValueOf(conn)).FieldByName("conn")
@@ -86,77 +80,81 @@ func websocketFD(conn net.Conn) int {
 }
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
-	// // Upgrade connection
-	// conn, _, _, err := ws.UpgradeHTTP(r, w)
-	// if err != nil {
-	// 	return
-	// }
-	// if err := epoller.Add(conn); err != nil {
-	// 	log.Printf("Failed to add connection %v", err)
-	// 	conn.Close()
-	// }
+	// Upgrade connection
+	conn, _, _, err := ws.UpgradeHTTP(r, w)
+	if err != nil {
+		return
+	}
+
+	if err := epoller.Add(conn); err != nil {
+		slog.Error("CONNECTION_ADD_FAILED", "error", err)
+		conn.Close()
+	}
 }
 
+func Start() {
+	for {
+		connections, err := epoller.Wait()
+		if err != nil {
+			slog.Error("EPOLL_WAIT_ERROR", "error", err)
+			continue
+		}
+		for _, conn := range connections {
+			if conn == nil {
+				break
+			}
+			if msg, _, err := wsutil.ReadClientData(conn); err != nil {
+				if err := epoller.Remove(conn); err != nil {
+					slog.Error("EPOLL_REMOVE_CONN_FAILED", "error", err)
+				}
+				conn.Close()
+			} else {
+				slog.Debug("WEBSOCKET_RECEIVED_MESSAGE", "msg", string(msg))
+			}
+		}
+	}
+}
+
+func enablePprof() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	if err := http.ListenAndServe("0.0.0.0:6060", mux); err != nil {
+		slog.Error("PPROF_SERVER_START_FAILED", "error", err)
+		os.Exit(1)
+	}
+}
 func main() {
-	// // Increase resources limitations
-	// var rLimit syscall.Rlimit
-	// if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-	// 	panic(err)
-	// }
-	// rLimit.Cur = rLimit.Max
-	// if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-	// 	panic(err)
-	// }
+	// Enable pprof hooks
+	go enablePprof()
 
-	// // Enable pprof hooks
-	// go func() {
-	// 	if err := http.ListenAndServe("localhost:6060", nil); err != nil {
-	// 		log.Fatalf("pprof failed: %v", err)
-	// 	}
-	// }()
+	// Create epoll
+	var err error
 
-	// // Start epoll
-	// var err error
-	// epoller, err = MkEpoll()
-	// if err != nil {
-	// 	panic(err)
-	// }
+	epoller, err = MkEpoll()
+	if err != nil {
+		slog.Error("EPOLL_CREATE_FAILED", "error", err)
+		os.Exit(1)
+	}
 
-	// go Start()
+	// Start epoll listener loop in a separate goroutine
+	go Start()
+
+	http.HandleFunc("/websocket", wsHandler)
 
 	http.Handle("/assets/", http.FileServer(http.Dir("./dist")))
-
-	http.HandleFunc("/game", wsHandler)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./dist/index.html")
 	})
 
 	if err := http.ListenAndServe("0.0.0.0:8000", nil); err != nil {
-		log.Fatal(err)
+		slog.Error("HTTP_SERVER_START_FAILED", "error", err)
+		os.Exit(1)
 	}
 }
-
-// func Start() {
-// 	for {
-// 		connections, err := epoller.Wait()
-// 		if err != nil {
-// 			log.Printf("Failed to epoll wait %v", err)
-// 			continue
-// 		}
-// 		for _, conn := range connections {
-// 			if conn == nil {
-// 				break
-// 			}
-// 			if _, _, err := wsutil.ReadClientData(conn); err != nil {
-// 				if err := epoller.Remove(conn); err != nil {
-// 					log.Printf("Failed to remove %v", err)
-// 				}
-// 				conn.Close()
-// 			} else {
-// 				// This is commented out since in demo usage, stdout is showing messages sent from > 1M connections at very high rate
-// 				//log.Printf("msg: %s", string(msg))
-// 			}
-// 		}
-// 	}
-// }

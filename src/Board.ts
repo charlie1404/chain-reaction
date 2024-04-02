@@ -187,7 +187,7 @@ class Board {
     this.players = players;
   }
 
-  changePlayer() {
+  setNextPlayer() {
     let idx = this.players.findIndex((player) => player === this.currentPlayer);
     this.currentPlayer = this.players[(idx + 1) % this.players.length];
     this.edgesMaterial.color.set(this.currentPlayer.getColor());

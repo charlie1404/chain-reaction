@@ -1,4 +1,4 @@
-module github.com/charlie1404/nuclear-reaction
+module github.com/charlie1404/chain-reaction
 
 go 1.21.0
 
