@@ -54,3 +54,8 @@ This project is licensed under the GNU GPL v3 License - see the [LICENSE](LICENS
 This game was created as a fun project. Feel free to contribute to the project by submitting bug reports, feature requests, or pull requests.
 
 Enjoy playing Chain-Reaction! 🎮
+
+## TODO:
+
+  - [ ] Multiplayer mode (play with friends over internet)
+  - [ ] Play with bot
