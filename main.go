@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -129,7 +130,16 @@ func enablePprof() {
 		os.Exit(1)
 	}
 }
+func foobar() *string {
+	foobar := "foobar"
+	return &foobar
+}
+
 func main() {
+
+	r := foobar()
+	fmt.Println(*r)
+
 	// Enable pprof hooks
 	go enablePprof()
 
@@ -147,10 +157,8 @@ func main() {
 
 	http.HandleFunc("/websocket", wsHandler)
 
-	http.Handle("/assets/", http.FileServer(http.Dir("./dist")))
-
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./dist/index.html")
+		w.Write([]byte("Welcome to Game Server!"))
 	})
 
 	if err := http.ListenAndServe("0.0.0.0:8000", nil); err != nil {
