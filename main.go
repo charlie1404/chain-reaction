@@ -1,19 +1,24 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"os"
+	"os/signal"
 	"reflect"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"golang.org/x/sys/unix"
+
+	"github.com/charlie1404/chain-reaction/internal/api"
+	"github.com/charlie1404/chain-reaction/internal/middlewares"
 )
 
 var epoller *epoll
@@ -116,53 +121,72 @@ func Start() {
 	}
 }
 
-func enablePprof() {
-	mux := http.NewServeMux()
+// func enablePprof() {
+// 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+// 	mux.HandleFunc("/debug/pprof/", pprof.Index)
+// 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+// 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+// 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+// 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-	if err := http.ListenAndServe("0.0.0.0:6060", mux); err != nil {
-		slog.Error("PPROF_SERVER_START_FAILED", "error", err)
-		os.Exit(1)
-	}
-}
-func foobar() *string {
-	foobar := "foobar"
-	return &foobar
-}
+// 	if err := http.ListenAndServe("0.0.0.0:6060", mux); err != nil {
+// 		slog.Error("PPROF_SERVER_START_FAILED", "error", err)
+// 		os.Exit(1)
+// 	}
+// Enable pprof hooks
+// go enablePprof()
+// }
 
 func main() {
+	fmt.Println("\x1B[2J\x1B[3J\x1B[H")
 
-	r := foobar()
-	fmt.Println(*r)
+	mux := api.NewRouter()
 
-	// Enable pprof hooks
-	go enablePprof()
+	mux.ServerStatic("/assets", "./dist/assets/")
+	mux.AddMiddleware(middlewares.EnsureUserContext)
 
-	// Create epoll
-	var err error
+	// mux.POST("/api/v1/game", api.GameHandler)
+	// mux.GET("/api/v1/game/join", api.GameHandler)
 
-	epoller, err = MkEpoll()
-	if err != nil {
-		slog.Error("EPOLL_CREATE_FAILED", "error", err)
+	mux.GET("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./dist/index.html")
+	}))
+
+	srv := http.Server{
+		Addr:              ":8000",
+		Handler:           mux,
+		ReadTimeout:       2 * time.Second,
+		WriteTimeout:      1 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 1 * time.Second,
+		ConnState:         func(conn net.Conn, state http.ConnState) {},
+		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
+			return ctx
+		},
+	}
+
+	go func() {
+		slog.Info("HTTP_SERVER_STARTING", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			panic(err)
+		}
+	}()
+
+	// time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("HTTP_SERVER_SHUTDOWN_FAILED", "error", err)
 		os.Exit(1)
 	}
 
-	// Start epoll listener loop in a separate goroutine
-	go Start()
-
-	http.HandleFunc("/websocket", wsHandler)
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Welcome to Game Server!"))
-	})
-
-	if err := http.ListenAndServe("0.0.0.0:8000", nil); err != nil {
-		slog.Error("HTTP_SERVER_START_FAILED", "error", err)
-		os.Exit(1)
-	}
+	slog.Info("HTTP_SERVER_STOPPED")
 }

@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine3.18
+FROM golang:1.22-alpine3.18
 
 RUN apk add --update --no-cache ca-certificates curl
 
@@ -14,8 +14,8 @@ RUN go install github.com/githubnemo/CompileDaemon@v1.4.0
 
 COPY Makefile /app/
 
-# We can do copy . . but that will copy extra files too for no reason
-COPY main.go /app/main.go
+# # We can do copy . . but that will copy extra files too for no reason
+# COPY main.go /app/main.go
 
-# cache build for faster subsequent builds, usefull when doing first docker compose up
-RUN go build -o ./app main.go
+# # cache build for faster subsequent builds, usefull when doing first docker compose up
+# RUN go build -o ./app main.go

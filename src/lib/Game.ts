@@ -9,22 +9,21 @@ import { COLORS, audd } from './constants';
 type GridSizes = 's' | 'l';
 
 class Game {
-  private scene: THREE.Scene;
-  private camera: THREE.PerspectiveCamera;
-  private renderer: THREE.WebGLRenderer;
-  private light: THREE.PointLight;
-  private raycaster: THREE.Raycaster;
-  private pointer: THREE.Vector2;
+  private scene!: THREE.Scene;
+  private camera!: THREE.PerspectiveCamera;
+  private renderer!: THREE.WebGLRenderer;
+  private light!: THREE.PointLight;
+  private raycaster!: THREE.Raycaster;
+  private pointer!: THREE.Vector2;
 
-  private controls: OrbitControls;
+  private board!: Board;
+  private controls!: OrbitControls;
 
   private width: number;
   private height: number;
   private locked = false;
 
-  private board: Board;
-
-  constructor(playersCount = 2, gridSize: GridSizes = 's') {
+  constructor(playersCount = 2, gridSize: GridSizes = 's', canvas: HTMLCanvasElement | null) {
     if (playersCount < 2 || playersCount > COLORS.length) {
       throw new Error('Players count should be between 2 and 8');
     }
@@ -52,13 +51,13 @@ class Game {
       this.height = window.innerHeight;
     }
 
-    this._initThreeScene(gridSize);
+    this._initThreeScene(gridSize, canvas);
     // this._addOrbitControls();
     this._addBoard(playersCount, xCells, yCells);
     this._addBoardMouseDownListener();
   }
 
-  _initThreeScene(gridSize: GridSizes) {
+  _initThreeScene(gridSize: GridSizes, canvas: HTMLCanvasElement | null) {
     this.scene = new THREE.Scene();
 
     this.camera = new THREE.PerspectiveCamera(45, this.width / this.height);
@@ -73,10 +72,9 @@ class Game {
     this.light.position.set(0, 0, 50);
     this.scene.add(this.light);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvas || undefined });
     this.renderer.setSize(this.width, this.height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    document.body.appendChild(this.renderer.domElement);
   }
 
   _gameLoop() {
@@ -124,7 +122,7 @@ class Game {
       // add logic to check if game should end
       gsap.globalTimeline.clear();
       alert('Game Over');
-      throw new Error('Game Over'); // TODO: Fix later
+      // throw new Error('Game Over'); // TODO: Fix later
     }
   }
 
@@ -143,12 +141,12 @@ class Game {
     this._nextTurn();
   }
 
-  _onBoardMouseDownEventHandler(e: MouseEvent & { target: HTMLCanvasElement }) {
+  _onBoardMouseDownEventHandler(e: MouseEvent) {
     if (this.locked || e.target !== this.renderer.domElement) {
       return;
     }
 
-    let rect = e.target.getBoundingClientRect();
+    let rect = this.renderer.domElement.getBoundingClientRect();
     let left = e.clientX - rect.left;
     let top = e.clientY - rect.top;
 
@@ -190,4 +188,5 @@ class Game {
   }
 }
 
-export { Game, GridSizes };
+export { Game };
+export type { GridSizes };

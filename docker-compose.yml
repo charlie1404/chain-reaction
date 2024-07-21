@@ -1,17 +1,15 @@
-version: '3.8'
-
 services:
   server:
     build:
       context: .
       dockerfile: Dockerfile
     entrypoint: ['/bin/sh', '-c']
-    command: ['CompileDaemon -log-prefix=false --build="go build -o ./app main.go" --command="./app"']
+    command: ['CompileDaemon -log-prefix=false --build="go build -o ./dist/cr ." --command="./dist/cr"']
     image: chain-reaction-dev
     container_name: api
     restart: on-failure
     volumes:
-      - ./main.go:/app/main.go
+      - ./:/app/
     ports:
       - 8000:8000
       - 6060:6060
