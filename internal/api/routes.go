@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"path"
+	"runtime/debug"
 	"strings"
+
+	"github.com/charlie1404/chain-reaction/internal/middlewares"
 )
 
 type Middleware func(next http.Handler) http.Handler
@@ -17,10 +19,12 @@ type Router struct {
 	staticFilesUrlPrefix string
 }
 
-func NewRouter() *Router {
-	return &Router{
-		routes: make(map[string]map[string]http.Handler),
-	}
+func (r *Router) AddMiddleware(middleware Middleware) {
+	// prepend the new middleware to the list of middlewares
+
+	r.middlewares = append(r.middlewares, nil)
+	copy(r.middlewares[1:], r.middlewares)
+	r.middlewares[0] = middleware
 }
 
 func (r *Router) ServerStatic(urlPrefix string, dir string) {
@@ -28,11 +32,7 @@ func (r *Router) ServerStatic(urlPrefix string, dir string) {
 	r.staticFilesUrlPrefix = urlPrefix
 }
 
-func (r *Router) AddMiddleware(middleware Middleware) {
-	r.middlewares = append(r.middlewares, middleware)
-}
-
-func (r *Router) Handle(method, path string, handler http.Handler) {
+func (r *Router) Handle(method, path string, handler http.HandlerFunc) {
 	if _, ok := r.routes[path][method]; ok {
 		panic(fmt.Sprintf("Duplicate path: %s", path))
 	}
@@ -41,42 +41,13 @@ func (r *Router) Handle(method, path string, handler http.Handler) {
 		r.routes[path] = make(map[string]http.Handler)
 	}
 
-	r.routes[path][method] = handler
-}
-
-func (r *Router) GET(path string, handler http.Handler) {
-	r.Handle(http.MethodGet, path, handler)
-}
-
-func (r *Router) HEAD(path string, handler http.Handler) {
-	r.Handle(http.MethodHead, path, handler)
-}
-
-func (r *Router) OPTIONS(path string, handler http.Handler) {
-	r.Handle(http.MethodOptions, path, handler)
-}
-
-func (r *Router) POST(path string, handler http.Handler) {
-	r.Handle(http.MethodPost, path, handler)
-}
-
-func (r *Router) PUT(path string, handler http.Handler) {
-	r.Handle(http.MethodPut, path, handler)
-}
-
-func (r *Router) PATCH(path string, handler http.Handler) {
-	r.Handle(http.MethodPatch, path, handler)
-}
-
-func (r *Router) DELETE(path string, handler http.Handler) {
-	r.Handle(http.MethodDelete, path, handler)
+	r.routes[path][method] = http.HandlerFunc(handler)
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Printf("%#v\n", err)
-			slog.Error("ROUTER_PANIC_RECOVER", "error", err)
+			slog.Error("ROUTER_PANIC_RECOVER", "error", err, "stack", debug.Stack())
 
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -89,8 +60,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	method := req.Method
 
 	if r.staticFilesUrlPrefix != "" && strings.HasPrefix(upath, r.staticFilesUrlPrefix) {
-		fmt.Println(path.Clean(req.URL.Path))
-		fmt.Println("Serving static file", upath, r.staticFilesUrlPrefix)
+		// if the path is a static file, serve it, no need to check the routes
 		r.staticFilesServer.ServeHTTP(w, req)
 		return
 	}
@@ -118,5 +88,30 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	for _, middleware := range r.middlewares {
 		handler = middleware(handler)
 	}
+
 	handler.ServeHTTP(w, req)
+}
+
+func (s *ApiApp) setupRoutes() *Router {
+	mux := &Router{
+		routes: make(map[string]map[string]http.Handler),
+	}
+
+	mux.ServerStatic("/assets", "./dist/assets/")
+
+	mux.AddMiddleware(middlewares.HttpMetricsHandler)
+	mux.AddMiddleware(middlewares.InjectRequestContext)
+	mux.AddMiddleware(middlewares.EnsureUserContext)
+
+	mux.Handle(http.MethodGet, "/api/v1/name", s.GetName)
+	mux.Handle(http.MethodPost, "/api/v1/name", s.SetName)
+	mux.Handle(http.MethodPost, "/api/v1/game", s.CreateGame)
+
+	mux.Handle(http.MethodPost, "/api/v1/game/lobby", s.WsHandler)
+
+	mux.Handle(http.MethodGet, "/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./dist/index.html")
+	})
+
+	return mux
 }

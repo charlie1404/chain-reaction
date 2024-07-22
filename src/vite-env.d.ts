@@ -7,6 +7,7 @@ declare global {
     // interface PageData {}
     // interface PageState {}
     // interface Platform {}
+    type BoardSize = 's' | 'l';
   }
 }
 

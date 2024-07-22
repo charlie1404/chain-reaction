@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "unicorn", "oxc"],
+  "jsPlugins": ["eslint-plugin-prettier"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "builtin": true
+  },
+  "rules": {
+    "prettier/prettier": "error",
+    "eqeqeq": ["warn", "smart"],
+    "no-debugger": "warn",
+    "react/jsx-key": "warn",
+    "no-empty": "warn",
+    "typescript/no-non-null-asserted-optional-chain": "warn",
+    "typescript/ban-ts-comment": "warn"
+  }
+}

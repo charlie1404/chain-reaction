@@ -63,6 +63,9 @@ dkms.conf
 # Compiled Static libraries
 *.lai
 
+# DB files
+*.bolt
+
 ### Node ###
 # Logs
 logs

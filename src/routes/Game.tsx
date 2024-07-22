@@ -1,33 +1,49 @@
-import { useEffect, useRef } from 'react';
-import { useLocation, useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useParams, useNavigate } from "react-router-dom";
 
-import { Game as GameApp } from '../lib/Game';
+import { Game as GameApp } from "../lib/Game";
+
+type GameState = "STARTED" | "LOBBY" | "END" | "LOADING";
 
 type GameRouteParams = {
   roomId: string;
 };
 
 function Game() {
+  const webSocket = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
-  const { state } = useLocation();
+  const [gameState, setGameState] = useState<GameState | null>("STARTED");
   const { roomId } = useParams<GameRouteParams>();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (!state) {
-      navigate('/', { replace: true, state: { roomId } });
-      return;
-    }
+    if (!webSocket.current) {
+      webSocket.current = new WebSocket("http://localhost:3344/api/v1/game/join");
 
-    // start-game
-    new GameApp(state.count, state.boardSize, canvasRef.current).start();
+      webSocket.current.onopen = () => {
+        console.log("WebSocket connected");
+        webSocket.current?.send(JSON.stringify({ roomId }));
+      };
+    }
   }, []);
 
-  if (!state) {
-    return null;
+  useEffect(() => {
+    if (gameState === "STARTED") {
+      // start-game
+      new GameApp(2, "l", canvasRef.current).start();
+      return;
+    }
+  }, [gameState]);
+
+  if (gameState === "LOADING") {
+    return <div>Loading...</div>;
   }
 
-  return <canvas ref={canvasRef} style={{ margin: '0 auto' }}></canvas>;
+  if (gameState === "STARTED") {
+    return <canvas ref={canvasRef} style={{ margin: "0 auto" }}></canvas>;
+  }
+
+  return null;
 }
 
 export default Game;
