@@ -9,20 +9,20 @@ import { COLORS, audd } from './constants';
 type GridSizes = 's' | 'l';
 
 class Game {
-  private scene: THREE.Scene;
-  private camera: THREE.PerspectiveCamera;
-  private renderer: THREE.WebGLRenderer;
-  private light: THREE.PointLight;
-  private raycaster: THREE.Raycaster;
-  private pointer: THREE.Vector2;
+  private scene!: THREE.Scene;
+  private camera!: THREE.PerspectiveCamera;
+  private renderer!: THREE.WebGLRenderer;
+  private light!: THREE.PointLight;
+  private raycaster!: THREE.Raycaster;
+  private pointer!: THREE.Vector2;
 
-  private controls: OrbitControls;
+  private controls!: OrbitControls;
 
   private width: number;
   private height: number;
   private locked = false;
 
-  private board: Board;
+  private board!: Board;
 
   constructor(playersCount = 2, gridSize: GridSizes = 's') {
     if (playersCount < 2 || playersCount > COLORS.length) {
@@ -91,11 +91,11 @@ class Game {
   }
 
   _addResizeListener() {
-    window.addEventListener('resize', () => {});
+    window.addEventListener('resize', () => { });
   }
 
   _addBoard(playersCount: number, xCells: number, yCells: number) {
-    let players = Array(playersCount)
+    const players = Array(playersCount)
       .fill(null)
       .map((_, i) => new Player('', i));
 
@@ -111,7 +111,7 @@ class Game {
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
 
-    this.renderer.domElement.addEventListener('mousedown', this._onBoardMouseDownEventHandler.bind(this), false);
+    this.renderer.domElement.addEventListener('mousedown', (e) => this._onBoardMouseDownEventHandler(e as unknown as MouseEvent & { target: HTMLCanvasElement }), false);
   }
 
   _onReactionStepStart() {
@@ -119,7 +119,7 @@ class Game {
   }
 
   _onReactionStepComplete() {
-    let alivePlayers = this.board.getAlivePlayers();
+    const alivePlayers = this.board.getAlivePlayers();
     if (alivePlayers.size === 1) {
       // add logic to check if game should end
       gsap.globalTimeline.clear();
@@ -129,13 +129,13 @@ class Game {
   }
 
   _onReactionComplete() {
-    let alivePlayers = this.board.getAlivePlayers();
+    const alivePlayers = this.board.getAlivePlayers();
     if (alivePlayers.size === 1) {
       // end game
       return;
     }
 
-    let players = this.board.getPlayers();
+    const players = this.board.getPlayers();
     if (alivePlayers.size !== players.length) {
       this.board.setPlayers(players.filter((p) => alivePlayers.has(p)));
     }
@@ -148,16 +148,16 @@ class Game {
       return;
     }
 
-    let rect = e.target.getBoundingClientRect();
-    let left = e.clientX - rect.left;
-    let top = e.clientY - rect.top;
+    const rect = e.target.getBoundingClientRect();
+    const left = e.clientX - rect.left;
+    const top = e.clientY - rect.top;
 
     this.pointer.x = (left / this.width) * 2 - 1;
     this.pointer.y = -(top / this.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this.pointer, this.camera);
 
-    let [intersect, ...rest] = this.raycaster
+    const [intersect, ...rest] = this.raycaster
       .intersectObjects(this.scene.children)
       .filter((e) => e.object.type === 'Mesh' && e.object.userData?.type === 'cube');
 
@@ -165,15 +165,15 @@ class Game {
       return;
     }
 
-    let { row, col } = intersect.object.userData;
+    const { row, col } = intersect.object.userData;
 
-    let isValid = this.board.validateMove(row, col);
+    const isValid = this.board.validateMove(row, col);
     if (!isValid) return;
 
     this.locked = true;
 
     // TODO: Fix later, this ideally should return atom or atom count.
-    let shouldSplit = this.board.addAtom(row, col);
+    const shouldSplit = this.board.addAtom(row, col);
 
     if (shouldSplit) {
       this.board.startReaction(row, col, {
@@ -190,4 +190,5 @@ class Game {
   }
 }
 
-export { Game, GridSizes };
+export { Game };
+export type { GridSizes };
