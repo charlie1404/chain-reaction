@@ -15,12 +15,12 @@ class Cell {
   private cube: Cube;
   private atoms: THREE.Mesh[];
   private player: Player | null;
-  private maxCapacity: number;
+  private maxCapacity!: number;
 
   private sphereGeometry: THREE.SphereGeometry;
   private sphereMaterial: THREE.MeshLambertMaterial;
 
-  private timeline: gsap.core.Timeline;
+  private timeline!: gsap.core.Timeline;
 
   constructor(cube: THREE.Mesh) {
     this.cube = cube as Cube;
@@ -76,7 +76,7 @@ class Cell {
     delta2 = delta2 + 0.02;
     delta3 = delta3 + 0.02;
 
-    // let delta = 0.04;
+    const delta = 0.04;
     this.timeline = gsap
       .timeline({
         defaults: {
@@ -87,12 +87,12 @@ class Cell {
         },
         repeat: -1,
       })
-      .to({ x: 0 }, { x: 1.5 });
-    // .fromTo(
-    //   atom.position,
-    //   { x: atom.position.x, y: atom.position.y, z: atom.position.z },
-    //   { x: atom.position.x + delta, y: atom.position.y + delta, z: atom.position.z + delta },
-    // );
+      .to({ x: 0 }, { x: 1.5 })
+      .fromTo(
+        atom.position,
+        { x: atom.position.x, y: atom.position.y, z: atom.position.z },
+        { x: atom.position.x + delta, y: atom.position.y + delta, z: atom.position.z + delta },
+      );
   }
 
   _resetAtomPosition(atom: THREE.Mesh) {
@@ -133,13 +133,13 @@ class Cell {
   }
 
   addAtom(player: Player) {
-    let atom = new THREE.Mesh(this.sphereGeometry, this.sphereMaterial);
+    const atom = new THREE.Mesh(this.sphereGeometry, this.sphereMaterial);
     this._addCreatedAtom(atom);
     this.setPlayer(player);
   }
 
   popTopAtom() {
-    let atom = this.atoms.pop() as THREE.Mesh;
+    const atom = this.atoms.pop() as THREE.Mesh;
     if (this.atoms.length === 0) {
       this.timeline.kill();
       this.setPlayer(null);
