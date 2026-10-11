@@ -44,8 +44,12 @@ func HttpMetricsHandler(next http.Handler) http.Handler {
 			elapsedMs := float64(time.Since(start).Microseconds())
 
 			statusText := fmt.Sprintf("%d", rw.statusCode)
-			metrics.IncHttpRequestsCounter(statusText, r.URL.Path)
-			metrics.ObserveHttpRequestsDuration(statusText, r.URL.Path, elapsedMs)
+			if metrics.HttpRequestsCounter != nil {
+				metrics.IncHttpRequestsCounter(statusText, r.URL.Path)
+			}
+			if metrics.HttpRequestDurHistogram != nil {
+				metrics.ObserveHttpRequestsDuration(statusText, r.URL.Path, elapsedMs)
+			}
 		}()
 
 		next.ServeHTTP(rw, r)

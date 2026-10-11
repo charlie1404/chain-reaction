@@ -15,12 +15,12 @@ class Cell {
   private cube: Cube;
   private atoms: THREE.Mesh[];
   private player: Player | null;
-  private maxCapacity: number;
+  private maxCapacity!: number;
 
   private sphereGeometry: THREE.SphereGeometry;
   private sphereMaterial: THREE.MeshLambertMaterial;
 
-  private timeline: gsap.core.Timeline;
+  private timeline!: gsap.core.Timeline;
 
   constructor(cube: THREE.Mesh) {
     this.cube = cube as Cube;

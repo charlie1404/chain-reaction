@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,7 +15,7 @@ import (
 
 func clearScreen() {
 	// https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
-	fmt.Println("\x1B[H\x1B[2J\x1B[3J")
+	// fmt.Println("\x1B[H\x1B[2J\x1B[3J")
 }
 
 func initLogger() {
@@ -29,7 +28,7 @@ func initLogger() {
 func ensureDataFolderExist() error {
 	slog.Debug("CHECKING_DATA_DIR")
 
-	var dirName string = "data"
+	var dirName string = ".data"
 	var folderMode os.FileMode = 0700 | os.ModeDir
 
 	info, err := os.Stat(dirName)

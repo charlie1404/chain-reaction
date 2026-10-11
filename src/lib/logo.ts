@@ -112,7 +112,7 @@ const connectorAttribs = {
   'stroke-width': STROKE_WIDTH,
 };
 
-let mainCircle = draw
+draw
   .circle()
   .attr(mainCircleAttribs)
   .maskWith(
@@ -122,7 +122,7 @@ let mainCircle = draw
       .add(draw.path().attr({ ...connectorAttribs, 'fill': 'black', 'stroke-width': HALF_STROKE_WIDTH })),
   );
 
-let circle1 = draw
+draw
   .circle()
   .attr(circleOneAttribs)
   .maskWith(
@@ -132,7 +132,7 @@ let circle1 = draw
       .add(draw.path().attr({ ...connectorAttribs, 'fill': 'black', 'stroke-width': HALF_STROKE_WIDTH })),
   );
 
-let circle2 = draw
+draw
   .circle()
   .attr(circleTwoAttribs)
   .maskWith(
@@ -142,7 +142,7 @@ let circle2 = draw
       .add(draw.path().attr({ ...connectorAttribs, 'fill': 'black', 'stroke-width': HALF_STROKE_WIDTH })),
   );
 
-let connector = draw
+draw
   .path()
   .attr(connectorAttribs)
   .maskWith(

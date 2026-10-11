@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charlie1404/chain-reaction/internal/config"
+	"github.com/charlie1404/chain-reaction/internal/game"
 	"go.etcd.io/bbolt"
 	"golang.org/x/sys/unix"
 )
@@ -18,6 +19,7 @@ type ApiApp struct {
 	epollConnections map[int]*Connection
 	httpServer       *http.Server
 	db               *bbolt.DB
+	gameManager      *game.GameManager
 }
 
 func (s *ApiApp) InitHttpServer() {
@@ -79,12 +81,18 @@ func (s *ApiApp) Shutdown() error {
 	}
 
 	s.CloseEpoll()
+	s.gameManager.StopHeartbeatChecker()
 
 	return err
 }
 
 func New(db *bbolt.DB) *ApiApp {
-	s := &ApiApp{db: db}
+	s := &ApiApp{
+		db:          db,
+		gameManager: game.NewGameManager(),
+	}
+
+	s.gameManager.StartHeartbeatChecker(1*time.Second, 5*time.Second)
 
 	err := s.InitEpollFd()
 	if err != nil {

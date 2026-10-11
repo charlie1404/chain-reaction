@@ -1,21 +1,5 @@
 import { chakra } from '@chakra-ui/react';
 
-// const textAnimation = keyframes({
-//   '0%': {
-//     strokeDashoffset: 1600,
-//     // fill: transparent;
-//   },
-//   '70%': {
-//     // fill: transparent;
-//   },
-//   '100%': {
-//     // fill: white;
-//     strokeDashoffset: 0,
-//   },
-// });
-
-
-
 function GameLogo() {
   return (
     <svg

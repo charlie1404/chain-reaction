@@ -1,113 +1,154 @@
 package api
 
 import (
-	"log/slog"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"unsafe"
 
-	randv2 "math/rand/v2"
-
 	"github.com/charlie1404/chain-reaction/internal/constants"
 	"github.com/charlie1404/chain-reaction/internal/models"
-
 	"go.etcd.io/bbolt"
 )
 
-var BucketName = []byte("profiles")
-
-var ADJECTIVES = [][]byte{
-	[]byte("dry"), []byte("icy"), []byte("old"), []byte("red"), []byte("shy"), []byte("dark"), []byte("cool"),
-	[]byte("dawn"), []byte("blue"), []byte("cold"), []byte("damp"), []byte("long"), []byte("late"), []byte("bold"),
-	[]byte("wild"), []byte("holy"), []byte("aged"), []byte("misty"), []byte("empty"), []byte("quiet"),
-	[]byte("white"), []byte("wispy"), []byte("green"), []byte("muddy"), []byte("rough"), []byte("still"),
-	[]byte("small"), []byte("black"), []byte("young"), []byte("snowy"), []byte("proud"), []byte("autumn"),
-	[]byte("hidden"), []byte("bitter"), []byte("silent"), []byte("summer"), []byte("spring"), []byte("winter"),
-	[]byte("broken"), []byte("frosty"), []byte("little"), []byte("floral"), []byte("divine"), []byte("purple"),
-	[]byte("lively"), []byte("patient"), []byte("crimson"), []byte("falling"), []byte("morning"), []byte("ancient"),
-	[]byte("delicate"), []byte("twilight"), []byte("withered"), []byte("solitary"), []byte("fragrant"),
-	[]byte("restless"), []byte("polished"), []byte("nameless"), []byte("weathered"), []byte("billowing"),
-	[]byte("lingering"), []byte("sparkling"), []byte("throbbing"), []byte("wandering"),
+type UserProfileResponse struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Avatar string `json:"avatar"`
 }
 
-var ADJECTIVES_LEN = len(ADJECTIVES)
+func (s *ApiApp) GetStoredProfile(userId []byte) (models.StoredProfile, error) {
+	if s.db == nil {
+		return models.StoredProfile{Name: "Player", Avatar: "cyber-bot"}, errors.New("db not initialized")
+	}
 
-var NOUNS = [][]byte{
-	[]byte("sea"), []byte("sun"), []byte("dew"), []byte("sky"), []byte("sun"), []byte("fog"), []byte("moon"),
-	[]byte("rain"), []byte("wind"), []byte("snow"), []byte("lake"), []byte("pine"), []byte("leaf"), []byte("dawn"),
-	[]byte("hill"), []byte("bird"), []byte("bush"), []byte("dust"), []byte("fire"), []byte("haze"), []byte("pond"),
-	[]byte("surf"), []byte("wave"), []byte("wood"), []byte("tree"), []byte("frog"), []byte("star"), []byte("river"),
-	[]byte("cloud"), []byte("glade"), []byte("brook"), []byte("field"), []byte("grass"), []byte("night"),
-	[]byte("sound"), []byte("shape"), []byte("water"), []byte("water"), []byte("dream"), []byte("frost"),
-	[]byte("voice"), []byte("paper"), []byte("smoke"), []byte("breeze"), []byte("sunset"), []byte("shadow"),
-	[]byte("forest"), []byte("meadow"), []byte("flower"), []byte("violet"), []byte("cherry"), []byte("morning"),
-	[]byte("glitter"), []byte("firefly"), []byte("feather"), []byte("silence"), []byte("thunder"),
-	[]byte("mountain"), []byte("darkness"), []byte("waterfall"), []byte("butterfly"), []byte("snowflake"),
-	[]byte("resonance"), []byte("wildflower"),
+	var rawData []byte
+	s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(models.BucketProfiles)
+		if b != nil {
+			raw := b.Get(userId)
+			if len(raw) > 0 {
+				rawData = append([]byte(nil), raw...)
+			}
+		}
+		return nil
+	})
+
+	if len(rawData) == 0 {
+		return models.StoredProfile{}, errors.New("profile not found")
+	}
+
+	var profile models.StoredProfile
+	if err := json.Unmarshal(rawData, &profile); err != nil || profile.Name == "" {
+		return models.StoredProfile{Name: string(rawData), Avatar: "cyber-bot"}, nil
+	}
+
+	return profile, nil
 }
 
-var NOUNS_LEN = len(NOUNS)
+func (s *ApiApp) GetProfile(w http.ResponseWriter, r *http.Request) {
+	requestCtxVal := r.Context().Value(constants.ContextKeyRequestCtx)
+	if requestCtxVal == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]any{"error": "Unauthorized: identity not present"})
+		return
+	}
 
-func (s *ApiApp) SetName(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
-	name := r.FormValue("name")
+	requestCtx := requestCtxVal.(*models.RequestCtx)
+	if len(requestCtx.UserID) == 0 {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]any{"error": "Unauthorized: identity not present"})
+		return
+	}
 
-	if name == "" {
+	userId := requestCtx.UserID
+	userIdStr := unsafe.String(unsafe.SliceData(userId), len(userId))
+
+	profile, err := s.GetStoredProfile(userId)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]any{"error": "Profile not found"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(UserProfileResponse{
+		ID:     userIdStr,
+		Name:   profile.Name,
+		Avatar: profile.Avatar,
+	})
+}
+
+func (s *ApiApp) SetProfile(w http.ResponseWriter, r *http.Request) {
+	userId := r.Context().Value(constants.ContextKeyRequestCtx).(*models.RequestCtx).UserID
+	userIdStr := unsafe.String(unsafe.SliceData(userId), len(userId))
+
+	var reqBody struct {
+		Name   string `json:"name"`
+		Avatar string `json:"avatar"`
+	}
+
+	if r.Header.Get("Content-Type") == "application/json" {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+	} else {
+		r.ParseForm()
+		reqBody.Name = r.FormValue("name")
+		reqBody.Avatar = r.FormValue("avatar")
+	}
+
+	if reqBody.Name == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
 
-	if len(name) > 100 {
+	if len(reqBody.Name) > 100 {
 		http.Error(w, "name is too long", http.StatusBadRequest)
 		return
 	}
 
-	userId := r.Context().Value(constants.ContextKeyRequestCtx).(*models.RequestCtx).UserID
+	if reqBody.Avatar == "" {
+		reqBody.Avatar = "cyber-bot"
+	}
 
-	nameBytes := unsafe.Slice(unsafe.StringData(name), len(name))
+	stored := models.StoredProfile{
+		Name:   reqBody.Name,
+		Avatar: reqBody.Avatar,
+	}
 
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(BucketName)
-
-		return b.Put(userId, nameBytes)
-	})
-
+	jsonBytes, err := json.Marshal(stored)
 	if err != nil {
-		http.Error(w, "error setting name", http.StatusInternalServerError)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
-}
 
-func (s *ApiApp) GetName(w http.ResponseWriter, r *http.Request) {
-	var name []byte
-
-	userId := r.Context().Value(constants.ContextKeyRequestCtx).(*models.RequestCtx).UserID
-
-	s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(BucketName)
-
-		name = b.Get(userId)
-
-		return nil
-	})
-
-	if name == nil {
-		randomAdjective := ADJECTIVES[randv2.IntN(ADJECTIVES_LEN)]
-		randomNoun := NOUNS[randv2.IntN(NOUNS_LEN)]
-
-		s.db.Update(func(tx *bbolt.Tx) error {
-			b := tx.Bucket(BucketName)
-
-			name = append(randomAdjective, byte(' '))
-			name = append(name, randomNoun...)
-
-			err := b.Put(userId, name) // even if error, we don't care as we can set name on next api call or new get request
-
-			if err != nil {
-				slog.Warn("error setting random name", "error", err)
+	if s.db != nil {
+		err = s.db.Update(func(tx *bbolt.Tx) error {
+			b := tx.Bucket(models.BucketProfiles)
+			if b == nil {
+				var bErr error
+				b, bErr = tx.CreateBucketIfNotExists(models.BucketProfiles)
+				if bErr != nil {
+					return bErr
+				}
 			}
-
-			return nil
+			return b.Put(userId, jsonBytes)
 		})
+		if err != nil {
+			http.Error(w, "error saving profile", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	w.Write(name)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(UserProfileResponse{
+		ID:     userIdStr,
+		Name:   stored.Name,
+		Avatar: stored.Avatar,
+	})
 }

@@ -8,6 +8,20 @@ import { COLORS, audd } from './constants';
 
 type GridSizes = 's' | 'l';
 
+interface PlayerInfoOption {
+  id: string;
+  colorIndex?: number;
+}
+
+interface GameOptions {
+  playersInfo?: PlayerInfoOption[];
+  onTurnChange?: (playerIndex: number) => void;
+  onGameOver?: (winnerIndex: number) => void;
+  isPlayerConnected?: (playerIndex: number) => boolean;
+  isMyTurn?: () => boolean;
+  onNotMyTurn?: () => void;
+}
+
 class Game {
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
@@ -22,8 +36,11 @@ class Game {
   private width: number;
   private height: number;
   private locked = false;
+  private animId: number | null = null;
+  private mouseHandler: ((e: MouseEvent) => void) | null = null;
+  private options?: GameOptions;
 
-  constructor(playersCount = 2, gridSize: GridSizes = 's', canvas: HTMLCanvasElement | null) {
+  constructor(playersCount = 2, gridSize: GridSizes = 's', canvas: HTMLCanvasElement | null, options?: GameOptions) {
     if (playersCount < 2 || playersCount > COLORS.length) {
       throw new Error('Players count should be between 2 and 8');
     }
@@ -31,6 +48,8 @@ class Game {
     if (gridSize !== 's' && gridSize !== 'l') {
       throw new Error('Invalid grid size');
     }
+
+    this.options = options;
 
     let xCells = 6;
     let yCells = 10;
@@ -40,19 +59,22 @@ class Game {
       yCells = 18;
     }
 
-    this.width = window.innerWidth / xCells;
-    this.height = window.innerHeight / yCells;
+    // Account for header and side HUD
+    const availWidth = Math.min(window.innerWidth, 1200);
+    const availHeight = window.innerHeight - 110;
+
+    this.width = availWidth / xCells;
+    this.height = availHeight / yCells;
 
     if (this.width < this.height) {
-      this.width = window.innerWidth;
-      this.height = (window.innerWidth / xCells) * yCells;
+      this.width = availWidth;
+      this.height = (availWidth / xCells) * yCells;
     } else {
-      this.width = (window.innerHeight / yCells) * xCells;
-      this.height = window.innerHeight;
+      this.width = (availHeight / yCells) * xCells;
+      this.height = availHeight;
     }
 
     this._initThreeScene(gridSize, canvas);
-    // this._addOrbitControls();
     this._addBoard(playersCount, xCells, yCells);
     this._addBoardMouseDownListener();
   }
@@ -78,7 +100,7 @@ class Game {
   }
 
   _gameLoop() {
-    requestAnimationFrame(this._gameLoop.bind(this));
+    this.animId = requestAnimationFrame(this._gameLoop.bind(this));
     this.renderer.render(this.scene, this.camera);
 
     if (this.controls) this.controls.update();
@@ -95,41 +117,78 @@ class Game {
   _addBoard(playersCount: number, xCells: number, yCells: number) {
     let players = Array(playersCount)
       .fill(null)
-      .map((_, i) => new Player('', i));
+      .map((_, i) => {
+        const info = this.options?.playersInfo?.[i];
+        return new Player(info?.id || '', i, info?.colorIndex);
+      });
 
     this.board = new Board(this.scene, players, xCells, yCells);
   }
 
   _nextTurn() {
     this.board.setNextPlayer();
+
+    // Rule 3: If next player is disconnected prior to turn, skip their turn to next connected player
+    if (this.options?.isPlayerConnected) {
+      let attempts = 0;
+      let current = this.board.getCurrentPlayer();
+      let playerIdx = current ? current.getIndex() : -1;
+
+      while (
+        attempts < this.board.getPlayers().length &&
+        playerIdx !== -1 &&
+        !this.options.isPlayerConnected(playerIdx)
+      ) {
+        this.board.setNextPlayer();
+        current = this.board.getCurrentPlayer();
+        playerIdx = current ? current.getIndex() : -1;
+        attempts++;
+      }
+    }
+
     this.locked = false;
+
+    if (this.options?.onTurnChange) {
+      const current = this.board.getCurrentPlayer();
+      if (current) {
+        this.options.onTurnChange(current.getIndex());
+      }
+    }
+  }
+
+  skipTurn() {
+    if (!this.locked) {
+      this._nextTurn();
+    }
   }
 
   _addBoardMouseDownListener() {
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
 
-    this.renderer.domElement.addEventListener('mousedown', this._onBoardMouseDownEventHandler.bind(this), false);
+    this.mouseHandler = this._onBoardMouseDownEventHandler.bind(this);
+    this.renderer.domElement.addEventListener('mousedown', this.mouseHandler, false);
   }
 
   _onReactionStepStart() {
-    audd.play();
+    audd.play().catch(() => {});
   }
 
   _onReactionStepComplete() {
     let alivePlayers = this.board.getAlivePlayers();
     if (alivePlayers.size === 1) {
-      // add logic to check if game should end
       gsap.globalTimeline.clear();
-      alert('Game Over');
-      // throw new Error('Game Over'); // TODO: Fix later
+      if (this.options?.onGameOver) {
+        const winner = Array.from(alivePlayers)[0];
+        const winnerIdx = winner ? winner.getIndex() : 0;
+        this.options.onGameOver(winnerIdx);
+      }
     }
   }
 
   _onReactionComplete() {
     let alivePlayers = this.board.getAlivePlayers();
     if (alivePlayers.size === 1) {
-      // end game
       return;
     }
 
@@ -163,6 +222,13 @@ class Game {
       return;
     }
 
+    if (this.options?.isMyTurn && !this.options.isMyTurn()) {
+      if (this.options?.onNotMyTurn) {
+        this.options.onNotMyTurn();
+      }
+      return;
+    }
+
     let { row, col } = intersect.object.userData;
 
     let isValid = this.board.validateMove(row, col);
@@ -170,7 +236,6 @@ class Game {
 
     this.locked = true;
 
-    // TODO: Fix later, this ideally should return atom or atom count.
     let shouldSplit = this.board.addAtom(row, col);
 
     if (shouldSplit) {
@@ -183,10 +248,48 @@ class Game {
       this._nextTurn();
     }
   }
+
   start() {
+    if (this.options?.isPlayerConnected) {
+      let attempts = 0;
+      let current = this.board.getCurrentPlayer();
+      let playerIdx = current ? current.getIndex() : -1;
+
+      while (
+        attempts < this.board.getPlayers().length &&
+        playerIdx !== -1 &&
+        !this.options.isPlayerConnected(playerIdx)
+      ) {
+        this.board.setNextPlayer();
+        current = this.board.getCurrentPlayer();
+        playerIdx = current ? current.getIndex() : -1;
+        attempts++;
+      }
+
+      if (this.options?.onTurnChange && current && attempts > 0) {
+        this.options.onTurnChange(current.getIndex());
+      }
+    }
+
     this._gameLoop();
+  }
+
+  destroy() {
+    if (this.animId !== null) {
+      cancelAnimationFrame(this.animId);
+      this.animId = null;
+    }
+    if (this.mouseHandler && this.renderer?.domElement) {
+      this.renderer.domElement.removeEventListener('mousedown', this.mouseHandler);
+      this.mouseHandler = null;
+    }
+    try {
+      this.renderer?.dispose();
+    } catch {
+      /* ignore */
+    }
   }
 }
 
 export { Game };
-export type { GridSizes };
+export type { GridSizes, GameOptions, PlayerInfoOption };

@@ -66,6 +66,18 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if _, ok := r.routes[upath]; !ok {
+		// SPA fallback: serve index.html for page loads like /lobby/* and /game/*
+		if req.Method == http.MethodGet && !strings.HasPrefix(upath, "/api/") {
+			var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.ServeFile(w, r, "./dist/index.html")
+			})
+			for _, middleware := range r.middlewares {
+				handler = middleware(handler)
+			}
+			handler.ServeHTTP(w, req)
+			return
+		}
+
 		slog.Warn("ROUTER_ROUTE_NOT_FOUND", "path", upath)
 
 		w.WriteHeader(http.StatusNotFound)
@@ -101,13 +113,19 @@ func (s *ApiApp) setupRoutes() *Router {
 
 	mux.AddMiddleware(middlewares.HttpMetricsHandler)
 	mux.AddMiddleware(middlewares.InjectRequestContext)
-	mux.AddMiddleware(middlewares.EnsureUserContext)
+	mux.AddMiddleware(middlewares.EnsureUserContext(s.db))
 
-	mux.Handle(http.MethodGet, "/api/v1/name", s.GetName)
-	mux.Handle(http.MethodPost, "/api/v1/name", s.SetName)
+	mux.Handle(http.MethodGet, "/api/v1/profile", s.GetProfile)
+	mux.Handle(http.MethodPost, "/api/v1/profile", s.SetProfile)
+
 	mux.Handle(http.MethodPost, "/api/v1/game", s.CreateGame)
-
-	mux.Handle(http.MethodPost, "/api/v1/game/lobby", s.WsHandler)
+	mux.Handle(http.MethodGet, "/api/v1/game/lobby", s.GetOrJoinLobby)
+	mux.Handle(http.MethodPost, "/api/v1/game/lobby/settings", s.UpdateLobbySettings)
+	mux.Handle(http.MethodPost, "/api/v1/game/lobby/start", s.StartLobbyGame)
+	mux.Handle(http.MethodPost, "/api/v1/game/lobby/finish", s.FinishLobbyGame)
+	mux.Handle(http.MethodPost, "/api/v1/game/lobby/reset", s.ResetLobbyGame)
+	mux.Handle(http.MethodPost, "/api/v1/game/lobby/remove", s.RemoveLobbyPlayer)
+	mux.Handle(http.MethodPost, "/api/v1/game/heartbeat", s.Heartbeat)
 
 	mux.Handle(http.MethodGet, "/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./dist/index.html")
