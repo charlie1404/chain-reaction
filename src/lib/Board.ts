@@ -44,7 +44,7 @@ class Board {
     this.boxMaterial = new THREE.MeshStandardMaterial({ transparent: true, opacity: 0 });
     this.edgesMaterial = new THREE.LineBasicMaterial({ color: this.currentPlayer.getColor() });
 
-    this.grid = new Array(xCells).fill(null).map(() => new Array(yCells).fill(null));
+    this.grid = Array.from({ length: xCells }, () => Array.from({ length: yCells }, () => null as unknown as Cell));
 
     this._initGrid();
   }
@@ -183,11 +183,15 @@ class Board {
     return this.players;
   }
 
+  getCurrentPlayer() {
+    return this.currentPlayer;
+  }
+
   setPlayers(players: Player[]) {
     this.players = players;
   }
 
-  changePlayer() {
+  setNextPlayer() {
     let idx = this.players.findIndex((player) => player === this.currentPlayer);
     this.currentPlayer = this.players[(idx + 1) % this.players.length];
     this.edgesMaterial.color.set(this.currentPlayer.getColor());
